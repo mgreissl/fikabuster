@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FikaBuster</title>
+<style>
+  :root {
+    --bg:#0e0f11; --surface:#17191c; --line:#24272b; --fg:#f2f2f0; --mut:#8b8f96;
+    --accent:#c8a27a; --ok:#5fd39a; --warn:#f2b84b; --bad:#f2716b; --cold:#6ec8f2;
+    --phase: var(--mut); --radius:20px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
+  main { max-width:920px; margin:0 auto; padding:28px 20px 48px; display:grid; gap:16px; }
+  header { display:flex; align-items:center; justify-content:flex-end; padding:0 4px; }
+  .logo { width:100%; max-width:190px; aspect-ratio:1; object-fit:cover; border-radius:30px; display:block;
+          box-shadow:0 12px 32px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.06); }  /* JPEG has no transparency: rounded like an app icon */
+  .main-col { min-width:0; }
+  .status { display:flex; gap:14px; font-size:12px; color:var(--mut); background:var(--surface); border:1px solid var(--line);
+            border-radius:999px; padding:7px 14px; }
+  .status span::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; background:var(--bad); vertical-align:1px; }
+  .status span.on::before { background:var(--ok); }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px; }
+  .label { font-size:12px; color:var(--mut); letter-spacing:.06em; text-transform:uppercase; margin-bottom:10px; }
+
+  /* Hero */
+  .hero { display:grid; grid-template-columns:190px 1fr 220px; gap:28px; align-items:center; padding:28px; }
+  .gauge { position:relative; width:220px; height:220px; }
+  .gauge svg { width:100%; height:100%; transform:rotate(135deg); }
+  .gauge circle { fill:none; stroke-width:12; stroke-linecap:round; }
+  .gauge .track { stroke:var(--line); }
+  .gauge .bar { stroke:var(--phase); transition:stroke-dasharray .6s ease, stroke .4s; }
+  .gauge .tick { stroke:var(--fg); stroke-width:16; stroke-linecap:butt; opacity:.9; transition:stroke-dashoffset .6s; }
+  .gauge .zone { stroke:var(--ok); stroke-width:20; stroke-linecap:butt; opacity:0; transition:opacity .35s, stroke-dasharray .45s ease, stroke-dashoffset .45s ease; }
+  .gauge.has-zone .zone { opacity:.26; }
+  .gauge.adj .zone { opacity:.55; }
+  .gauge.adj .tick { stroke-width:20; }
+
+  /* Knob adjustment panel */
+  .adjust { max-height:0; opacity:0; overflow:hidden; margin:0; transform:translateY(-6px);
+            transition:max-height .35s ease, opacity .25s ease, margin .35s ease, transform .3s ease; }
+  .adjust.show { max-height:130px; opacity:1; margin:0 0 20px; transform:none; }
+  .adj-box { background:linear-gradient(180deg, #1d2024, #181a1d); border:1px solid #2c3035; border-radius:16px; padding:14px 18px 12px;
+             box-shadow:0 8px 24px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.04); }
+  .adj-head { display:flex; align-items:baseline; justify-content:space-between; }
+  .adj-head span { font-size:12px; color:var(--mut); letter-spacing:.06em; text-transform:uppercase; }
+  .adj-head b { font-size:26px; font-weight:650; letter-spacing:-.02em; line-height:1.1; }
+  .adj-track { position:relative; height:8px; margin:12px 4px 8px; border-radius:99px; background:#2a2d32; }
+  .adj-clip { position:absolute; inset:0; border-radius:99px; overflow:hidden; }
+  .adj-zone { position:absolute; top:0; bottom:0; border-radius:99px; background:linear-gradient(90deg, rgba(95,211,154,.35), rgba(95,211,154,.7));
+              transition:left .25s ease, width .25s ease; }
+  .adj-mid { position:absolute; top:-3px; bottom:-3px; left:50%; width:2px; margin-left:-1px; border-radius:2px; background:#4a4e55; }
+  .adj-thumb { position:absolute; top:50%; width:20px; height:20px; margin:-10px 0 0 -10px; border-radius:50%; background:var(--fg);
+               border:3px solid var(--bg); box-shadow:0 0 0 2px var(--phase), 0 4px 10px rgba(0,0,0,.5); transition:left .25s cubic-bezier(.3,1.4,.5,1); }
+  .adj-scale { display:flex; justify-content:space-between; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .adj-scale em { font-style:normal; color:var(--fg); font-weight:600; }
+  .adjust.time .adj-track { display:none; }
+  .adjust.time .adj-scale { justify-content:flex-start; }
+  .gauge .center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .gauge .temp { font-size:52px; font-weight:600; letter-spacing:-.03em; line-height:1; }
+  .gauge .temp small { font-size:20px; color:var(--mut); font-weight:400; }
+  .gauge .sub { font-size:12px; color:var(--mut); margin-top:6px; }
+  .phase { font-size:40px; font-weight:700; letter-spacing:-.02em; color:var(--phase); line-height:1.1; }
+  .hint { color:var(--mut); margin:6px 0 20px; min-height:22px; }
+  .stats { display:flex; gap:28px; margin-bottom:22px; }
+  .stats div { display:flex; flex-direction:column; }
+  .stats b { font-size:20px; font-weight:600; }
+  .stats span { font-size:12px; color:var(--mut); }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; }
+  button { font:inherit; font-size:14px; font-weight:500; border:1px solid var(--line); background:transparent; color:var(--fg);
+           padding:9px 16px; border-radius:999px; cursor:pointer; transition:background .15s, border-color .15s; }
+  button:hover { background:#1f2226; border-color:#33373c; }
+  button.primary { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+  button.primary:hover { background:#d9d9d6; }
+
+  .row { display:grid; grid-template-columns:1.3fr 1fr; gap:16px; }
+  .media { position:relative; aspect-ratio:4/3; border-radius:14px; overflow:hidden; background:#0b0c0d; }
+  .media img { width:100%; height:100%; object-fit:cover; display:none; }
+  .media img.show { display:block; }
+  .media .empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); font-size:13px; }
+  .tabs { display:flex; gap:4px; }
+  .tabs button { padding:4px 12px; font-size:12px; }
+  .tabs button.on { background:#24272b; }
+  .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .head .label { margin:0; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:10px 20px; }
+  .kv dt { color:var(--mut); } .kv dd { margin:0; text-align:right; font-weight:500; }
+  .tags { display:flex; gap:6px; margin-top:16px; flex-wrap:wrap; }
+  .tag { font-size:12px; padding:3px 10px; border-radius:999px; background:#24272b; color:var(--fg); }
+
+  canvas { width:100%; height:220px; display:block; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--mut); }
+  .legend span::before { content:""; display:inline-block; width:14px; height:3px; border-radius:2px; margin-right:7px; vertical-align:3px; background:var(--c); }
+  .legend .zonekey::before { height:10px; width:14px; border-radius:3px; vertical-align:0; opacity:.5; }
+  .chart-wrap { position:relative; }
+  .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); font-size:13px; pointer-events:none; }
+  details { border-top:1px solid var(--line); padding:14px 0 0; margin-top:14px; }
+  details:first-of-type { border-top:0; margin-top:0; padding-top:0; }
+  summary { cursor:pointer; color:var(--mut); font-size:13px; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:" +"; } details[open] summary::after { content:" −"; }
+  ul { list-style:none; padding:0; margin:10px 0 0; font-size:13px; max-height:200px; overflow:auto; }
+  li { padding:5px 0; display:flex; gap:12px; } li time, li b { color:var(--mut); font-weight:400; min-width:80px; }
+  .help li { color:var(--mut); } .help li b { color:var(--fg); min-width:110px; }
+
+  [hidden] { display:none !important; }
+  .drinks { max-height:none; margin:0; font-size:14px; }
+  .drinks li { align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+  .drinks li:first-child { border-top:0; }
+  .grow { flex:1; } .mut { color:var(--mut); }
+  button.mini { padding:4px 12px; font-size:12px; }
+  .form { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); }
+  .form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mut); }
+  .form .wide { grid-column:1 / -1; }
+  .form .check { flex-direction:row; align-items:center; gap:8px; font-size:14px; color:var(--fg); }
+  input, select { font:inherit; font-size:14px; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .err { color:var(--bad); font-size:13px; }
+
+  @media (max-width:900px) {  /* logo and gauge side by side, details below */
+    .hero { grid-template-columns:1fr auto; }
+    .logo { max-width:150px; }
+    .gauge { order:2; }
+    .main-col { grid-column:1 / -1; order:3; }
+  }
+  @media (max-width:720px) {
+    .logo { max-width:120px; border-radius:24px; }
+    .hero { grid-template-columns:1fr; justify-items:center; text-align:center; }
+    .main-col { grid-column:auto; }
+    .stats, .actions { justify-content:center; }
+    .row { grid-template-columns:1fr; }
+    .form { grid-template-columns:1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="status"><span id="sdot">Sensor</span><span id="cdot">Camera</span><span id="adot">AI</span></div>
+  </header>
+
+  <section class="card hero">
+    <img class="logo" src="Fika_Busters_icon.jpeg" alt="FikaBuster">
+    <div class="main-col">
+      <div class="phase" id="phase">Ready</div>
+      <div class="hint" id="hint"></div>
+      <div class="adjust" id="adjust">
+        <div class="adj-box">
+          <div class="adj-head"><span id="adjLabel">Target</span><b id="adjVal">--</b></div>
+          <div class="adj-track">
+            <div class="adj-clip"><i class="adj-zone" id="adjZone"></i></div>
+            <i class="adj-mid"></i><i class="adj-thumb" id="adjThumb"></i>
+          </div>
+          <div class="adj-scale"><span id="adjMin"></span><em id="adjDelta"></em><span id="adjMax"></span></div>
+        </div>
+      </div>
+      <div class="stats">
+        <div><b id="target">--</b><span>Target °C</span></div>
+        <div><b id="temp">--</b><span>Sensor °C</span></div>
+        <div><b id="room">--</b><span>Room °C</span></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="analyze">Analyze cup</button>
+        <button id="save">Save as favourite</button>
+        <button id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="gauge" id="gauge">
+      <svg viewBox="0 0 220 220">
+        <circle class="track" cx="110" cy="110" r="96" stroke-dasharray="452 604"/>
+        <circle class="zone" id="zone" cx="110" cy="110" r="96" stroke-dasharray="0 604" stroke-dashoffset="0"/>
+        <circle class="bar" id="bar" cx="110" cy="110" r="96" stroke-dasharray="0 604"/>
+        <circle class="tick" id="tick" cx="110" cy="110" r="96" stroke-dasharray="3 601" stroke-dashoffset="0" style="opacity:0"/>
+      </svg>
+      <div class="center">
+        <div class="temp"><span id="liquid">--</span><small>°</small></div>
+        <div class="sub" id="gaugeSub">liquid</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="row">
+    <section class="card">
+      <div class="head">
+        <div class="label">Camera</div>
+        <div class="tabs"><button id="tabLive" class="on">Live</button><button id="tabSnap">Snapshot</button></div>
+      </div>
+      <div class="media">
+        <img id="stream" alt=""><img id="snap" alt="">
+        <div class="empty" id="mediaEmpty">No camera</div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="label">Cup</div>
+      <dl class="kv">
+        <dt>Drink</dt><dd id="drink">—</dd>
+        <dt>Material</dt><dd id="material">—</dd>
+        <dt>Fill level</dt><dd id="fill">—</dd>
+        <dt>Lid</dt><dd id="lid">—</dd>
+        <dt>Cooling k</dt><dd id="k">—</dd>
+      </dl>
+      <div class="tags" id="tags"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <div class="head">
+      <div class="label">Temperature</div>
+      <div class="legend">
+        <span style="--c:var(--accent)">Liquid</span><span style="--c:#7d828a">Sensor</span><span class="zonekey" style="--c:var(--ok)">Perfect zone</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas><div class="chart-empty" id="chartEmpty">Waiting for temperature data…</div></div>
+  </section>
+
+  <section class="card">
+    <div class="head">
+      <div class="label">Drinks</div>
+      <div class="tabs"><button id="drinkAdd">+ Add drink</button><button id="drinkDefaults">Restore defaults</button></div>
+    </div>
+    <ul class="drinks" id="drinks"></ul>
+    <form class="form" id="drinkForm" hidden>
+      <input type="hidden" name="key">
+      <label class="wide">Name<input name="label" maxlength="40" required></label>
+      <div class="actions wide"><button type="button" id="lookup">🔎 Fill in with Exa</button><span class="mut" id="lookupState"></span></div>
+      <label>Type<select name="kind"><option value="hot">☕ Hot</option><option value="cold">❄ Cold</option></select></label>
+      <label><span id="targetLbl">Target °C</span><input name="target" type="number" step="0.5" required></label>
+      <label>Start °C<input name="fresh" type="number" step="0.5" required></label>
+      <label class="check" id="sprintBox"><input name="sprint" type="checkbox">⚡ Sprint (tiny cup)</label>
+      <label class="check" id="afterBox"><input name="afterhours" type="checkbox">🍺 AfterHours</label>      <div class="actions wide"><button class="primary">Save</button><button type="button" id="drinkCancel">Cancel</button><span class="err" id="drinkErr"></span></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <details><summary>Activity</summary><ul id="events"></ul></details>
+    <details><summary>Favourites</summary><ul id="prefs"></ul></details>
+    <details><summary>Knob controls</summary>
+      <ul class="help">
+        <li><b>Turn</b>Target ±1 °C (max ±5)</li>
+        <li><b>Hold + turn</b>±1 minute on the countdown</li>
+        <li><b>Click</b>Analyze (no cup) · show temp and silence reminder</li>
+        <li><b>Double-click</b>Save current temp as favourite</li>
+        <li><b>Long press</b>End session</li>
+      </ul>
+    </details>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = getComputedStyle(document.documentElement);
+const color = name => css.getPropertyValue(name).trim();
+let snapId = -1, streamOn = false, tab = "live", hasSnap = false;
+
+const PHASES = {
+  IDLE:      ["Ready", "--mut", "Place a cup on the coaster, or click the knob."],
+  ANALYZING: ["Analyzing…", "--cold", "Looking at your cup."],
+  WAIT:      ["Too hot", "--warn", "until it's perfect"],
+  DRINK:     ["Drink now", "--ok", "left in the perfect zone"],
+  RUN:       ["Last call", "--warn", "left in the perfect zone"],
+  SAD:       ["Too cold", "--bad", "The perfect moment has passed."],
+  THERMOS:   ["Thermos", "--cold", "Lid on. See you in 2028."],
+  CHILL:     ["Chilled", "--cold", "until it gets warm"],
+  DANGER:    ["Drink up!", "--warn", "until it gets warm"],
+  WARM:      ["Too warm", "--bad", "It's lost its chill."],
+};
+const ARC = 452, CIRC = 604, MAX_T = 100;
+
+const fmt = v => v == null ? "--" : Number(v).toFixed(1);
+const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+const nice = v => v ? String(v).replace(/_/g, " ").replace(/^./, c => c.toUpperCase()) : "—";
+
+const FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif';
+
+// Smooth path through points (quadratic curves between midpoints)
+function smooth(g, pts) {
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+    g.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+  }
+  if (pts.length > 1) g.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+}
+
+// Continuous runs of one series (null values split the line)
+function runs(hist, key, x, y) {
+  const out = []; let cur = [];
+  hist.forEach(h => {
+    if (h[key] == null) { if (cur.length) out.push(cur); cur = []; return; }
+    cur.push([x(h.ts), y(h[key])]);
+  });
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+function draw(hist, s) {
+  const c = $("chart"), g = c.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const vals = hist.flatMap(h => [h.sensor, h.liquid]).filter(v => v != null);
+  $("chartEmpty").style.display = vals.length < 2 ? "flex" : "none";
+  if (vals.length < 2) return;
+  if (s) vals.push(s.target + s.zone, s.target - s.zone);
+
+  const L = 38, R = 16, T = 14, B = 26, w = W - L - R, h = H - T - B;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = Math.max(hi - lo, 4), step = [1, 2, 5, 10, 20, 25].find(n => span / n <= 4) || 25;
+  lo = Math.floor((lo - span * 0.08) / step) * step; hi = Math.ceil((hi + span * 0.08) / step) * step;
+  const t1 = hist[hist.length - 1].ts, t0 = Math.min(hist[0].ts, t1 - 60000);
+  const x = t => L + (t - t0) / (t1 - t0) * w, y = v => T + (1 - (v - lo) / (hi - lo)) * h;
+  const accent = color("--accent"), ok = color("--ok");
+
+  // Grid + y labels
+  g.font = FONT; g.textBaseline = "middle"; g.textAlign = "right"; g.lineWidth = 1;
+  for (let v = lo; v <= hi + 1e-6; v += step) {
+    g.strokeStyle = "rgba(255,255,255,.05)"; g.beginPath(); g.moveTo(L, Math.round(y(v)) + .5); g.lineTo(W - R, Math.round(y(v)) + .5); g.stroke();
+    g.fillStyle = "#6b6f76"; g.fillText(v + "°", L - 8, y(v));
+  }
+  // Time labels
+  g.textBaseline = "alphabetic"; g.fillStyle = "#6b6f76";
+  const mins = (t1 - t0) / 60000, tstep = mins > 8 ? 2 : mins > 4 ? 1 : 0.5;
+  for (let m = 0; m <= mins + 1e-6; m += tstep) {
+    const px = x(t1 - m * 60000); if (px < L + 14) continue;
+    g.textAlign = "center"; g.fillText(m === 0 ? "now" : `-${m % 1 ? m.toFixed(1) : m}m`, Math.min(px, W - R - 10), H - 6);
+  }
+
+  // Perfect zone band + target line
+  if (s) {
+    const zt = s.mode === "cold" ? s.target : s.target + s.zone, zb = s.target - s.zone;
+    const zg = g.createLinearGradient(0, y(zt), 0, y(zb));
+    zg.addColorStop(0, "rgba(95,211,154,.20)"); zg.addColorStop(1, "rgba(95,211,154,.07)");
+    g.fillStyle = zg; g.beginPath(); g.roundRect(L, y(zt), w, Math.max(2, y(zb) - y(zt)), 6); g.fill();
+    g.strokeStyle = "rgba(95,211,154,.55)"; g.setLineDash([5, 5]); g.beginPath(); g.moveTo(L, y(s.target)); g.lineTo(W - R, y(s.target)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = ok; g.textAlign = "left"; g.textBaseline = "bottom"; g.fillText(`target ${Math.round(s.target)}°`, L + 8, y(s.target) - 4);
+  }
+
+  // Sensor line (thin, muted)
+  g.lineJoin = g.lineCap = "round"; g.strokeStyle = "#6a6f77"; g.lineWidth = 1.5;
+  runs(hist, "sensor", x, y).forEach(r => { g.beginPath(); smooth(g, r); g.stroke(); });
+
+  // Liquid: gradient area + glowing line
+  const lr = runs(hist, "liquid", x, y);
+  lr.forEach(r => {
+    const ag = g.createLinearGradient(0, T, 0, T + h);
+    ag.addColorStop(0, "rgba(200,162,122,.30)"); ag.addColorStop(1, "rgba(200,162,122,0)");
+    g.beginPath(); smooth(g, r); g.lineTo(r[r.length - 1][0], T + h); g.lineTo(r[0][0], T + h); g.closePath(); g.fillStyle = ag; g.fill();
+  });
+  g.save(); g.shadowColor = "rgba(200,162,122,.45)"; g.shadowBlur = 10; g.strokeStyle = accent; g.lineWidth = 2.5;
+  lr.forEach(r => { g.beginPath(); smooth(g, r); g.stroke(); }); g.restore();
+
+  // Live dot + value pill
+  const last = [...hist].reverse().find(p => p.liquid != null);
+  if (last && last === hist[hist.length - 1]) {
+    const px = x(last.ts), py = y(last.liquid);
+    g.fillStyle = "rgba(200,162,122,.22)"; g.beginPath(); g.arc(px, py, 9, 0, 7); g.fill();
+    g.fillStyle = accent; g.beginPath(); g.arc(px, py, 4.5, 0, 7); g.fill();
+    g.strokeStyle = color("--bg"); g.lineWidth = 2; g.stroke();
+    const label = last.liquid.toFixed(1) + "°", tw = g.measureText(label).width + 14, bx = Math.min(px - tw / 2, W - R - tw), by = Math.max(T, py - 30);
+    g.fillStyle = "#24272b"; g.beginPath(); g.roundRect(bx, by, tw, 20, 10); g.fill();
+    g.fillStyle = "#f2f2f0"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(label, bx + tw / 2, by + 10.5);
+  }
+}
+
+function setMedia() {
+  $("tabLive").classList.toggle("on", tab === "live"); $("tabSnap").classList.toggle("on", tab === "snap");
+  const live = tab === "live" && streamOn, snap = tab === "snap" && hasSnap;
+  $("stream").classList.toggle("show", live); $("snap").classList.toggle("show", snap);
+  $("mediaEmpty").style.display = live || snap ? "none" : "flex";
+  $("mediaEmpty").textContent = tab === "live" ? "No camera" : "No snapshot yet";
+}
+
+async function tick() {
+  try {
+    const d = await (await fetch("/api/state")).json();
+    const s = d.session, p = PHASES[d.phase] || PHASES.IDLE;
+    document.documentElement.style.setProperty("--phase", color(p[1]));
+    $("phase").textContent = p[0];
+    $("hint").textContent = s && s.remaining != null && !p[2].match(/[.!]$/) ? `${fmtTime(s.remaining)} ${p[2]}` : (p[2].match(/[.!]$/) ? p[2] : "");
+
+    const liquid = s ? s.liquid : null;
+    $("liquid").textContent = liquid == null ? (d.hw.temp == null ? "--" : d.hw.temp.toFixed(0)) : liquid.toFixed(0);
+    $("gaugeSub").textContent = s ? "liquid °C" : "sensor °C";
+    const shown = liquid ?? d.hw.temp ?? 0;
+    $("bar").setAttribute("stroke-dasharray", `${Math.max(0, Math.min(1, shown / MAX_T)) * ARC} ${CIRC}`);
+    const kn = s && s.knob && s.knob.age < 4 ? s.knob : null;
+    $("gauge").classList.toggle("has-zone", !!s); $("gauge").classList.toggle("adj", !!kn);
+    if (s) {
+      $("tick").style.opacity = 1;
+      $("tick").setAttribute("stroke-dashoffset", -Math.max(0, Math.min(1, s.target / MAX_T)) * ARC + 1.5);
+      const zlo = Math.max(0, s.target - s.zone), zhi = Math.min(MAX_T, s.mode === "cold" ? s.target : s.target + s.zone);
+      $("zone").setAttribute("stroke-dasharray", `${Math.max(0, zhi - zlo) / MAX_T * ARC} ${CIRC}`);
+      $("zone").setAttribute("stroke-dashoffset", -zlo / MAX_T * ARC);
+    } else $("tick").style.opacity = 0;
+
+    // Knob adjustment panel: shows for a few seconds after a turn
+    $("adjust").classList.toggle("show", !!kn);
+    if (kn) {
+      const isTarget = kn.kind === "target", sign = n => (n > 0 ? "+" : "") + n;
+      $("adjust").classList.toggle("time", !isTarget);
+      if (isTarget) {
+        const base = s.target - s.adj, lo = base - s.adj_max, per = 100 / (2 * s.adj_max);
+        const zlo = s.target - s.zone, zhi = s.mode === "cold" ? s.target : s.target + s.zone;
+        $("adjLabel").textContent = s.mode === "cold" ? "Max temperature" : "Target temperature";
+        $("adjVal").textContent = Math.round(s.target) + "°C";
+        $("adjThumb").style.left = (s.adj + s.adj_max) * per + "%";
+        $("adjZone").style.left = (zlo - lo) * per + "%"; $("adjZone").style.width = (zhi - zlo) * per + "%";
+        $("adjMin").textContent = Math.round(lo) + "°"; $("adjMax").textContent = Math.round(base + s.adj_max) + "°";
+        $("adjDelta").textContent = s.adj === 0 ? "default" : sign(Math.round(s.adj)) + "° from default";
+      } else {
+        $("adjLabel").textContent = "Countdown"; $("adjVal").textContent = sign(s.time_adj) + " min";
+        $("adjMin").textContent = ""; $("adjMax").textContent = "";
+        $("adjDelta").textContent = s.time_adj === 0 ? "as calculated" : "shifted by " + sign(s.time_adj) + " min";
+      }
+    }
+
+    $("target").textContent = s ? s.target.toFixed(0) : "--";
+    $("temp").textContent = fmt(d.hw.temp); $("room").textContent = fmt(d.room);
+    $("drink").textContent = s ? s.drink : "—"; $("material").textContent = s ? nice(s.material) : "—";
+    $("fill").textContent = s ? nice(s.fill) : "—"; $("lid").textContent = s ? nice(s.lid) : "—";
+    $("k").textContent = s ? `${s.k} /min` : "—";
+    $("tags").innerHTML = s ? [s.sprint && "⚡ Sprint mode", s.afterhours && "🍺 AfterHours", s.mode.startsWith("thermos") && "Thermos",
+      s.mode === "cold" && "❄ Cold mode"].filter(Boolean).map(t => `<span class="tag">${t}</span>`).join("") : "";
+
+    $("sdot").classList.toggle("on", d.hw.ok); $("cdot").classList.toggle("on", d.hw.camera); $("adot").classList.toggle("on", d.hw.ai);
+    if (d.hw.camera && !streamOn) { $("stream").src = "/stream"; streamOn = true; }
+    $("prefs").innerHTML = Object.entries(d.prefs).map(([k, v]) =>
+      `<li><b>${nice(k.replace(/^user_|_pref$/g, ""))}</b>${v} °C</li>`).join("") || "<li>None yet. Double-click the knob at the perfect sip.</li>";
+    $("events").innerHTML = d.events.map(e => `<li><time>${new Date(e.ts).toLocaleTimeString()}</time>${e.msg}</li>`).join("");
+    draw(d.history, s);
+    if (d.snapshot_id !== snapId) {
+      snapId = d.snapshot_id;
+      const r = await (await fetch("/api/snapshot")).json();
+      if (r.img) { $("snap").src = r.img; hasSnap = true; tab = "snap"; }
+    }
+    setMedia();
+  } catch (e) {}
+}
+const post = url => fetch(url, { method: "POST" }).then(tick).catch(() => {});
+$("analyze").onclick = () => post("/api/analyze");
+$("save").onclick = () => post("/api/save");
+$("reset").onclick = () => post("/api/reset");
+$("tabLive").onclick = () => { tab = "live"; setMedia(); };
+$("tabSnap").onclick = () => { tab = "snap"; setMedia(); };
+
+// ---- Drink database ----
+let drinks = [];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const sendJson = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  .then(r => r.json()).catch(() => ({ ok: false, error: "Board not reachable" }));
+const form = $("drinkForm"), f = form.elements;
+
+async function loadDrinks() {
+  try { drinks = (await (await fetch("/api/drinks")).json()).drinks; } catch (e) { return; }
+  $("drinks").innerHTML = drinks.map(d => `<li><b>${d.cold ? "❄ Cold" : "☕ Hot"}</b>
+    <span class="grow">${esc(d.label)}${d.sprint ? " ⚡" : ""}${d.afterhours ? " 🍺" : ""}</span>
+    <span class="mut">${d.cold ? "below " : ""}${d.pref ?? d.target} °C${d.pref != null ? " ♥" : ""}</span>
+    <button class="mini" data-edit="${d.id}">Edit</button><button class="mini" data-del="${d.id}">Remove</button></li>`).join("");
+}
+
+function syncKind() {
+  const cold = f.kind.value === "cold";
+  $("sprintBox").hidden = cold; $("afterBox").hidden = !cold;
+  $("targetLbl").textContent = cold ? "Max °C" : "Target °C";
+}
+
+function openForm(d) {
+  d = d || { cold: false, target: 60, fresh: 80 };
+  f.key.value = d.id || ""; f.label.value = d.label || ""; f.kind.value = d.cold ? "cold" : "hot";
+  f.target.value = d.target; f.fresh.value = d.fresh;
+  f.sprint.checked = !!d.sprint; f.afterhours.checked = !!d.afterhours;
+  $("drinkErr").textContent = ""; $("lookupState").textContent = ""; form.hidden = false; syncKind(); f.label.focus();
+}
+
+$("lookup").onclick = async () => {
+  const st = $("lookupState"), btn = $("lookup");
+  if (!f.label.value.trim()) { st.textContent = "Type a drink name first"; return; }
+  btn.disabled = true; st.textContent = "Searching the web…";
+  const r = await sendJson("/api/drinks/lookup", { label: f.label.value });
+  btn.disabled = false;
+  if (!r.ok) { st.textContent = r.error || "Lookup failed"; return; }
+  f.kind.value = r.cold ? "cold" : "hot"; syncKind();
+  f.target.value = r.target; f.fresh.value = r.fresh;
+  st.innerHTML = "Filled in. Check, then save. Sources: " + (r.sources.map(s =>
+    `<a href="${esc(s.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(s.title)}</a>`).join(", ") || "none");
+};
+
+f.kind.onchange = () => {  // sensible starting values for the new type
+  const cold = f.kind.value === "cold";
+  f.target.value = cold ? 10 : 60; f.fresh.value = cold ? 4 : 80; syncKind();
+};
+form.onsubmit = async e => {
+  e.preventDefault();
+  const cold = f.kind.value === "cold";
+  const r = await sendJson("/api/drinks", { id: f.key.value || null, label: f.label.value, cold, target: +f.target.value,
+    fresh: +f.fresh.value, sprint: !cold && f.sprint.checked, afterhours: cold && f.afterhours.checked });
+  if (r.ok) { form.hidden = true; loadDrinks(); } else $("drinkErr").textContent = r.error || "Could not save";
+};
+$("drinkCancel").onclick = () => { form.hidden = true; };
+$("drinkAdd").onclick = () => openForm();
+$("drinkDefaults").onclick = async () => {
+  if (confirm("Replace your drink list with the defaults? Favourite temperatures are kept.")) {
+    await sendJson("/api/drinks/reset", {}); form.hidden = true; loadDrinks();
+  }
+};
+$("drinks").onclick = async e => {
+  const edit = e.target.dataset.edit, del = e.target.dataset.del;
+  if (edit) openForm(drinks.find(d => d.id === edit));
+  if (del && confirm(`Remove ${drinks.find(d => d.id === del).label}?`)) {
+    const r = await sendJson("/api/drinks/delete", { id: del });
+    if (!r.ok) alert(r.error); loadDrinks();
+  }
+};
+
+tick(); setInterval(tick, 1000); loadDrinks();
+</script>
+</body>
+</html>

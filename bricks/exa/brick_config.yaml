@@ -1,0 +1,8 @@
+id: exa
+name: Exa
+description: "Exa web search: looks up drink temperatures and descriptions as structured data, with sources."
+category: text
+variables:
+  - name: EXA_API_KEY
+    description: API key for Exa (exa.ai)
+    secret: true

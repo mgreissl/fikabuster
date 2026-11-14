@@ -1,0 +1,90 @@
+{
+  "coffee_black": {
+    "label": "Coffee (black)",
+    "target": 60.0,
+    "fresh": 80.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "coffee_milk": {
+    "label": "Coffee (latte/milk)",
+    "target": 55.0,
+    "fresh": 70.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "espresso": {
+    "label": "Espresso",
+    "target": 60.0,
+    "fresh": 70.0,
+    "cold": false,
+    "sprint": true,
+    "afterhours": false
+  },
+  "green_tea": {
+    "label": "Green tea",
+    "target": 70.0,
+    "fresh": 80.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "black_tea": {
+    "label": "Black tea",
+    "target": 65.0,
+    "fresh": 90.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "herbal_tea": {
+    "label": "Herbal tea",
+    "target": 65.0,
+    "fresh": 90.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "hot_chocolate": {
+    "label": "Hot chocolate",
+    "target": 55.0,
+    "fresh": 70.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "cold_drink": {
+    "label": "Iced beverage",
+    "target": 10.0,
+    "fresh": 4.0,
+    "cold": true,
+    "sprint": false,
+    "afterhours": false
+  },
+  "ice_tea": {
+    "label": "Ice Tea",
+    "target": 4.0,
+    "fresh": 3.0,
+    "cold": true,
+    "sprint": false,
+    "afterhours": false
+  },
+  "matcha": {
+    "label": "Matcha",
+    "target": 80.0,
+    "fresh": 81.0,
+    "cold": false,
+    "sprint": false,
+    "afterhours": false
+  },
+  "iced_matcha": {
+    "label": "Iced Matcha",
+    "target": 10.0,
+    "fresh": 9.0,
+    "cold": true,
+    "sprint": false,
+    "afterhours": false
+  }
+}

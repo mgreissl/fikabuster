@@ -1,0 +1,12 @@
+name: FikaBuster
+description: "Predictive smart coaster: AI vision identifies cup and drink, Newton's cooling model tells you when to drink."
+ports: []
+bricks:
+- arduino:web_ui: {}
+- arduino:cloud_llm:
+    variables:
+      API_KEY: ""
+- exa:
+    variables:
+      EXA_API_KEY: ""
+icon: ☕
