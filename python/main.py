@@ -34,6 +34,8 @@ SETTLE_S = 60           # the chamber under the cup keeps heating up for a while
 LIFT_C = 1.5            # sudden move in the opposite direction = cup lifted
 LIFT_TIMEOUT_S = 120    # lifted for this long = cup gone, session ends
 TARGET_ADJ_MAX = 5.0    # knob adjusts the target by +/- this much
+AUTO_ADD_CONFIDENCE = 0.6  # an unknown drink seen on camera is added (via Exa) only above this AI confidence
+AUTO_ADD_TIMEOUT_S = 25    # Exa lookup while the cup is being analysed: don't keep the spinner forever
 
 # heat_transfer_efficiency: how much of the liquid-room difference reaches the sensor
 # cooling_rate_k: Newton cooling constant, per minute
@@ -65,7 +67,8 @@ DEFAULT_DRINKS = {
 VISION_SYSTEM = ("You are the vision module of FikaBuster, a smart coaster. You see a photo, taken from above at an angle, "
                  "of a beverage standing on the coaster. Answer ONLY with a compact JSON object, no prose, no markdown.")
 VISION_PROMPT = """Look at this beverage and its container. Return a JSON object with these fields:
-- "drink": one of {drinks}.
+- "drink": one of {drinks}, or "other" if the beverage is clearly none of these.
+- "new_drink": only when "drink" is "other": the common English name of the beverage, short and specific (e.g. "Chai latte"); otherwise null.
 - "material": one of "ceramic", "glass", "paper", "metal", "plastic", "thermos" (double-walled insulated tumbler or bottle such as Yeti or Stanley).
 - "lid": "on", "off" or "none" (is a lid covering the drink?).
 - "fill": "full", "half" or "nearly_empty" (look inside the cup: how much liquid is left?).
@@ -237,7 +240,12 @@ def load_drinks():
     return {k: clean_drink(v) for k, v in DEFAULT_DRINKS.items()}
 
 
+drinks_rev = 0  # bumps on every change so the web UI reloads its drink list
+
+
 def save_drinks():
+    global drinks_rev
+    drinks_rev += 1
     os.makedirs(os.path.dirname(DRINKS_PATH), exist_ok=True)
     with open(DRINKS_PATH, "w") as f:
         json.dump(DRINKS, f, indent=2)
@@ -268,7 +276,7 @@ def exa_key():
     return os.getenv("EXA_API_KEY", "").strip()  # from the Exa brick's Brick Configuration
 
 
-def exa_lookup(name):
+def exa_lookup(name, timeout=60):
     """Ask Exa about a drink; returns form-ready values (clamped to the valid ranges) and the sources."""
     key = exa_key()
     if not key:
@@ -279,7 +287,7 @@ def exa_lookup(name):
     req = urllib.request.Request(EXA_URL, data=json.dumps(body).encode(), method="POST",
                                  headers={"x-api-key": key, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             reply = json.load(r)
     except urllib.error.HTTPError as e:
         raise ValueError("Exa rejected the API key" if e.code in (401, 403) else f"Exa error {e.code}")
@@ -301,6 +309,43 @@ def exa_lookup(name):
         fresh = min(100, max(target + 1, fresh))
     sources = [{"title": c.get("title") or c.get("url"), "url": c.get("url")} for c in reply.get("citations", []) if str(c.get("url", "")).startswith("http")][:3]
     return {"cold": cold, "target": target, "fresh": fresh, "sources": sources}
+
+
+auto_add_failed = set()  # names Exa couldn't answer this run: don't ask again for every cup
+
+
+def drink_by_label(label):
+    want = label.strip().lower()
+    return next((k for k, d in DRINKS.items() if d["label"].lower() == want), None)
+
+
+def auto_add_drink(name):
+    """Drink id for a beverage the camera saw but the database lacks: looked up with Exa and saved. None on failure."""
+    name = name.strip()[:40]
+    name = name[:1].upper() + name[1:]
+    with lock:
+        existing = drink_by_label(name)
+    if existing:
+        return existing
+    if not exa_key() or name.lower() in auto_add_failed:
+        return None
+    log(f"New drink on camera: {name}, asking Exa")
+    try:
+        found = exa_lookup(name, timeout=AUTO_ADD_TIMEOUT_S)  # outside the lock: takes a few seconds
+        d = clean_drink({"label": name, **found})
+    except Exception as e:  # ValueError from Exa/validation, or a socket timeout
+        auto_add_failed.add(name.lower())
+        log(f"Could not add {name}: {e}")
+        return None
+    with lock:
+        key = drink_by_label(name)  # added from the web UI meanwhile?
+        if key is None:
+            key = new_drink_id(name)
+            DRINKS[key] = d
+            save_drinks()
+            log(f"Drink added automatically: {name} ({'cold' if d['cold'] else 'hot'}, "
+                f"target {d['target']} C, start {d['fresh']} C)")
+    return key
 
 
 def vision_prompt():
@@ -389,8 +434,11 @@ def ask_ai(img):
         reply = llm.chat(vision_prompt(), images=[img])
         m = re.search(r"\{.*\}", reply, re.S)
         data = json.loads(m.group(0)) if m else {}
+        drink = pick(data.get("drink"), DRINKS, None)
+        new_drink = str(data.get("new_drink") or "").strip()
         return {
-            "drink": pick(data.get("drink"), DRINKS, None),
+            "drink": drink,
+            "new_drink": new_drink if drink is None and new_drink.lower() not in ("", "null", "none", "unknown") else None,
             "material": pick(data.get("material"), MATERIALS, "ceramic"),
             "lid": pick(data.get("lid"), ("on", "off", "none"), "none"),
             "fill": pick(data.get("fill"), FILL_K, "full"),
@@ -609,6 +657,13 @@ def analyze_worker(info):
     else:
         log("No camera picture: using default guesses")
     ai = ask_ai(img)
+    if ai and ai["new_drink"]:
+        try:
+            confident = float(ai.get("confidence") or 0) >= AUTO_ADD_CONFIDENCE
+        except (TypeError, ValueError):
+            confident = False
+        if confident:
+            ai["drink"] = auto_add_drink(ai["new_drink"])  # the cup's timeline still starts at t_start
     with lock:
         pending = None
         if info["gen"] != generation:
@@ -760,7 +815,7 @@ def api_state():
         now = time.time()
         out = {"hw": hw, "phase": "ANALYZING" if pending else (session.phase if session else "IDLE"),
                "display": last_display, "room": round(estimate_room(now), 2) if samples else None,
-               "snapshot_id": snapshot["id"], "events": list(events), "history": list(history),
+               "snapshot_id": snapshot["id"], "drinks_rev": drinks_rev, "events": list(events), "history": list(history),
                "prefs": prefs, "session": None}
         s = session
         if s:

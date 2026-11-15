@@ -104,6 +104,8 @@
   li { padding:5px 0; display:flex; gap:12px; } li time, li b { color:var(--mut); font-weight:400; min-width:80px; }
   .help li { color:var(--mut); } .help li b { color:var(--fg); min-width:110px; }
 
+  .made { text-align:center; font-size:12px; color:var(--mut); padding:8px 0 0; }
+
   [hidden] { display:none !important; }
   .drinks { max-height:none; margin:0; font-size:14px; }
   .drinks li { align-items:center; padding:8px 0; border-top:1px solid var(--line); }
@@ -244,12 +246,14 @@
       </ul>
     </details>
   </section>
+
+  <footer class="made">Made with ☕ in Helsinki</footer>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 const css = getComputedStyle(document.documentElement);
 const color = name => css.getPropertyValue(name).trim();
-let snapId = -1, streamOn = false, tab = "live", hasSnap = false;
+let snapId = -1, streamOn = false, tab = "live", hasSnap = false, drinksRev = null;
 
 const PHASES = {
   IDLE:      ["Ready", "--mut", "Place a cup on the coaster, or click the knob."],
@@ -428,6 +432,8 @@ async function tick() {
       `<li><b>${nice(k.replace(/^user_|_pref$/g, ""))}</b>${v} °C</li>`).join("") || "<li>None yet. Double-click the knob at the perfect sip.</li>";
     $("events").innerHTML = d.events.map(e => `<li><time>${new Date(e.ts).toLocaleTimeString()}</time>${e.msg}</li>`).join("");
     draw(d.history, s);
+    if (drinksRev !== null && d.drinks_rev !== drinksRev) loadDrinks();  // a drink was added from the camera
+    drinksRev = d.drinks_rev;
     if (d.snapshot_id !== snapId) {
       snapId = d.snapshot_id;
       const r = await (await fetch("/api/snapshot")).json();
